@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from logging_proxy import JSONSocketHandler, LogServer
+from log_proxy import JSONSocketHandler, LogServer
 
 
 @pytest.fixture

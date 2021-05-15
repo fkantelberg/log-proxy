@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from logging_proxy import JSONSocketHandler, utils
+from log_proxy import JSONSocketHandler, utils
 
 
 def test_configure_logging():

@@ -21,7 +21,7 @@ deps = pytest
 depends:
     py38: clean
     report: py38
-commands = pytest --cov {envsitepackagesdir}/logging_proxy --cov-append --timeout 5
+commands = pytest --cov {envsitepackagesdir}/log_proxy --cov-append --timeout 5
 
 [testenv:report]
 skip_install = true

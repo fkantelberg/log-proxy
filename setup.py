@@ -9,7 +9,7 @@ def read(fname):
 
 
 setup(
-    name="logging-proxy",
+    name="log-proxy",
     version="0.1",
     author="Florian Kantelberg",
     author_email="florian.kantelberg@mailbox.org",
@@ -17,12 +17,12 @@ setup(
     long_description=read("README.md"),
     long_description_content_type="text/markdown",
     license="MIT",
-    keywords="logging socket",
-    url="https://github.com/fkantelberg/logging-proxy",
+    keywords="logging socket proxy",
+    url="https://github.com/fkantelberg/log-proxy",
     packages=find_packages("src"),
     package_dir={"": "src"},
     include_package_data=True,
-    entry_points={"console_scripts": ["logging_proxy = logging_proxy.__main__:main"]},
+    entry_points={"console_scripts": ["log_proxy = log_proxy.__main__:main"]},
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
