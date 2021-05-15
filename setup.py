@@ -10,7 +10,7 @@ def read(fname):
 
 setup(
     name="log-proxy",
-    version="0.1",
+    version="1.0",
     author="Florian Kantelberg",
     author_email="florian.kantelberg@mailbox.org",
     description="Proxy the log from one system to another",
