@@ -49,6 +49,11 @@ def parse_args(args: Tuple[str] = None) -> None:
         help="Set the log level to use. (default: %(default)s)",
     )
     group.add_argument(
+        "--log-uuid",
+        default=None,
+        help="Unique identifier of the log messages. If not set the hostname is used.",
+    )
+    group.add_argument(
         "--log-stdin",
         default=False,
         action="store_true",
@@ -167,7 +172,7 @@ def configure(args):
         return utils.configure_logging(args.log_file, level, None, args.log_format)
 
     if not args.forward_ca:
-        handler = JSONSocketHandler(*args.forward)
+        handler = JSONSocketHandler(*args.forward, uuid=args.log_uuid)
         return utils.configure_logging(args.log_file, level, handler, args.log_format)
 
     sc = utils.generate_ssl_context(
@@ -178,7 +183,7 @@ def configure(args):
         check_hostname=not args.no_verify_hostname,
     )
 
-    handler = JSONSocketHandler(*args.forward, sc)
+    handler = JSONSocketHandler(*args.forward, ssl_context=sc, uuid=args.log_uuid)
     return utils.configure_logging(args.log_file, level, handler, args.log_format)
 
 
