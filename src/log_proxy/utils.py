@@ -12,7 +12,6 @@ from .handlers import JSONSocketHandler
 
 _logger = logging.getLogger()
 
-
 DEFAULT_LOG_FORMAT = "{asctime} [{levelname:^8}] {name}: {message}"
 
 
@@ -21,31 +20,31 @@ def configure_logging(
     level: int = logging.INFO,
     forward: JSONSocketHandler = None,
     log_format: str = DEFAULT_LOG_FORMAT,
+    stdout: bool = True,
 ) -> None:
     """Helper to configure the logger and handlers"""
-    log = logging.getLogger()
-    log.setLevel(level)
-
+    _logger.setLevel(level)
     formatter = logging.Formatter(log_format, style="{")
 
-    # Always log to the stdout
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(level)
-    handler.setFormatter(formatter)
-    log.addHandler(handler)
+    if stdout:
+        # Echo the logs on the stdout
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(level)
+        handler.setFormatter(formatter)
+        _logger.addHandler(handler)
 
     if log_file:
         # Write the logs additional into a file
         handler = logging.FileHandler(log_file)
         handler.setLevel(level)
         handler.setFormatter(formatter)
-        log.addHandler(handler)
+        _logger.addHandler(handler)
 
     if forward:
         # Forward the logs further
         forward.setLevel(level)
         forward.setFormatter(formatter)
-        log.addHandler(forward)
+        _logger.addHandler(forward)
 
 
 def generate_ssl_context(

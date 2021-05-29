@@ -9,6 +9,11 @@ from . import utils
 from .handlers import JSONSocketHandler
 from .server import LogServer
 
+try:
+    from .watcher import watch
+except ImportError:
+    watch = None
+
 DEFAULT_PORT = 3773
 LOG_LEVELS = {
     "critical": logging.CRITICAL,
@@ -70,6 +75,43 @@ def parse_args(args: Tuple[str] = None) -> None:
         action="store_true",
         help="Disable the server part",
     )
+    group.add_argument(
+        "--no-stdout",
+        default=False,
+        action="store_true",
+        help="Don't echo logs on the stdout.",
+    )
+
+    if watch:
+        group = parser.add_argument_group("Watcher configuration")
+        group.add_argument(
+            "--watch",
+            default=None,
+            help="Watch on a folder for changes. This only works for clients.",
+        )
+        group.add_argument(
+            "-wi",
+            "--watch-include",
+            default=[],
+            action="append",
+            help="Define patterns for files to include in the watcher. You can specify "
+            "this options multiple times.",
+        )
+        group.add_argument(
+            "-we",
+            "--watch-exclude",
+            default=[],
+            action="append",
+            help="Define patterns for files to exclude in the watcher. You can specify "
+            "this options multiple times.",
+        )
+        group.add_argument(
+            "-wc",
+            "--watch-case-sensitive",
+            default=False,
+            action="store_true",
+            help="Enable case sensitivity for file names",
+        )
 
     group = parser.add_argument_group("Server configuration")
     group.add_argument(
@@ -168,12 +210,14 @@ def parse_args(args: Tuple[str] = None) -> None:
 def configure(args):
     """Configure the logger using the arguments"""
     level = LOG_LEVELS.get(args.log_level, logging.INFO)
+    kwargs = {"log_format": args.log_format, "stdout": not args.no_stdout}
+
     if not args.forward:
-        return utils.configure_logging(args.log_file, level, None, args.log_format)
+        return utils.configure_logging(args.log_file, level, None, **kwargs)
 
     if not args.forward_ca:
         handler = JSONSocketHandler(*args.forward, uuid=args.log_uuid)
-        return utils.configure_logging(args.log_file, level, handler, args.log_format)
+        return utils.configure_logging(args.log_file, level, handler, **kwargs)
 
     sc = utils.generate_ssl_context(
         ca=args.forward_ca,
@@ -184,7 +228,7 @@ def configure(args):
     )
 
     handler = JSONSocketHandler(*args.forward, ssl_context=sc, uuid=args.log_uuid)
-    return utils.configure_logging(args.log_file, level, handler, args.log_format)
+    return utils.configure_logging(args.log_file, level, handler, **kwargs)
 
 
 async def run(args):
@@ -207,6 +251,17 @@ async def run(args):
             asyncio.create_task(utils.stdin_to_log())
 
         await server.run()
+
+    elif watch and args.watch:
+        if args.log_stdin:
+            asyncio.create_task(utils.stdin_to_log())
+
+        await watch(
+            args.watch,
+            included_patterns=args.watch_include,
+            excluded_patterns=args.watch_exclude,
+            case_sensitive=args.watch_case_sensitive,
+        )
 
     elif args.log_stdin:
         # Only log the stdin

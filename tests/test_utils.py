@@ -10,6 +10,10 @@ from log_proxy import JSONSocketHandler, utils
 
 def test_configure_logging():
     logger = logging.getLogger()
+    logger.handlers = []
+
+    utils.configure_logging(level=logging.DEBUG, stdout=False)
+    assert all(not isinstance(h, logging.StreamHandler) for h in logger.handlers)
 
     utils.configure_logging(level=logging.DEBUG)
     assert logger.level == logging.DEBUG

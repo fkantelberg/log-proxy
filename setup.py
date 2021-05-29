@@ -10,7 +10,7 @@ def read(fname):
 
 setup(
     name="log-proxy",
-    version="1.0",
+    version="1.1",
     author="Florian Kantelberg",
     author_email="florian.kantelberg@mailbox.org",
     description="Proxy the log from one system to another",
@@ -23,6 +23,9 @@ setup(
     package_dir={"": "src"},
     include_package_data=True,
     entry_points={"console_scripts": ["log_proxy = log_proxy.__main__:main"]},
+    extras_require={
+        "observe": ["watchdog"],
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

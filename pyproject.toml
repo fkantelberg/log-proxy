@@ -18,6 +18,7 @@ deps = pytest
        pytest-cov
        pytest-timeout
        coverage
+       watchdog
 depends:
     py38: clean
     report: py38
