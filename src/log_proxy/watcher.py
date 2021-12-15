@@ -20,6 +20,12 @@ class WatcherHandler(PatternMatchingEventHandler):
             case_sensitive=self.case_sensitive,
         )
 
+    def get_size(self, path):
+        return self.observed.get(path, 0)
+
+    def set_size(self, path, size):
+        self.observed[path] = size
+
     def read_initial_size(self, path):
         """Read the initial size of the file to not send the entire file on start"""
         if os.path.isfile(path):
@@ -45,8 +51,9 @@ class WatcherHandler(PatternMatchingEventHandler):
         size = os.path.getsize(event.src_path)
 
         # Get the already observed lines
-        current = min(self.observed.get(event.src_path, 0), size)
+        current = self.get_size(event.src_path)
         if current >= size:
+            self.set_size(event.src_path, size)
             return
 
         # Open the file and seek to the last position
@@ -61,7 +68,7 @@ class WatcherHandler(PatternMatchingEventHandler):
                     self.on_new_line(event.src_path, stripped)
 
         # Update the position
-        self.observed[event.src_path] = current
+        self.set_size(event.src_path, current)
 
 
 async def watch(path, **kwargs):
@@ -73,8 +80,8 @@ async def watch(path, **kwargs):
     observer.start()
 
     try:
-        while True:
-            await asyncio.sleep(0.5)
+        while observer.is_alive():
+            await asyncio.sleep(0.1)
     finally:
         observer.stop()
         observer.join()

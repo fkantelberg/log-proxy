@@ -35,7 +35,7 @@ class CustomHelpFormatter(argparse.HelpFormatter):
         return f"{'/'.join(action.option_strings)} {args_string}"
 
 
-def parse_args(args: Tuple[str] = None) -> None:
+def parse_args(args: Tuple[str] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         formatter_class=CustomHelpFormatter,
         prog="",
@@ -207,7 +207,7 @@ def parse_args(args: Tuple[str] = None) -> None:
     return parser.parse_args(args)
 
 
-def configure(args):
+def configure(args: argparse.Namespace) -> None:
     """Configure the logger using the arguments"""
     level = LOG_LEVELS.get(args.log_level, logging.INFO)
     kwargs = {"log_format": args.log_format, "stdout": not args.no_stdout}
@@ -231,7 +231,7 @@ def configure(args):
     return utils.configure_logging(args.log_file, level, handler, **kwargs)
 
 
-async def run(args):
+async def run(args: argparse.Namespace) -> None:
     if not args.no_server:
         # Server SSL context
         if args.cert and args.key:
@@ -258,8 +258,8 @@ async def run(args):
 
         await watch(
             args.watch,
-            included_patterns=args.watch_include,
-            excluded_patterns=args.watch_exclude,
+            patterns=args.watch_include,
+            ignore_patterns=args.watch_exclude,
             case_sensitive=args.watch_case_sensitive,
         )
 
