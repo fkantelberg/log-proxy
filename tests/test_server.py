@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import socket
+import uuid
 from logging import NullHandler
 from unittest.mock import AsyncMock, MagicMock
 
@@ -58,6 +59,68 @@ async def test_server(unused_tcp_port, null_handler):
     await asyncio.sleep(0.1)
     null_handler.handle.assert_not_called()
 
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_server_token(unused_tcp_port, null_handler):
+    token = str(uuid.uuid4())
+    server = LogServer("127.0.0.1", unused_tcp_port, token=token)
+    # Start the server
+    asyncio.create_task(server.run())
+    null_handler.handle = MagicMock()
+
+    # Connect a handler to the server
+    json_handler = JSONSocketHandler("127.0.0.1", unused_tcp_port, token=token)
+
+    await asyncio.sleep(0.1)
+
+    # Send a normal log
+    record = logging.makeLogRecord({"msg": "hello"})
+    json_handler.handle(record)
+    await asyncio.sleep(0.1)
+    null_handler.handle.assert_called_once()
+
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_server_token_invalid(unused_tcp_port, null_handler):
+    token = str(uuid.uuid4())
+    server = LogServer("127.0.0.1", unused_tcp_port, token=token)
+    # Start the server
+    asyncio.create_task(server.run())
+    null_handler.handle = MagicMock()
+
+    record = logging.makeLogRecord({"msg": "hello"})
+
+    # Connect a handler to the server
+    json_handler = JSONSocketHandler("127.0.0.1", unused_tcp_port)
+    json_handler.handle(record)
+    await asyncio.sleep(0.1)
+
+    # Connect a handler to the server
+    json_handler = JSONSocketHandler("127.0.0.1", unused_tcp_port, token="abc")
+    json_handler.handle(record)
+    await asyncio.sleep(0.1)
+
+    # Send wrong data length should be silent
+    sock = socket.socket()
+    sock.connect(("127.0.0.1", unused_tcp_port))
+    sock.send(b"\x00\x00\x00\x00")
+    await asyncio.sleep(0.1)
+
+    sock = socket.socket()
+    sock.connect(("127.0.0.1", unused_tcp_port))
+    sock.send(b"\x00\x00\x00\x01{")
+    await asyncio.sleep(0.1)
+
+    sock = socket.socket()
+    sock.connect(("127.0.0.1", unused_tcp_port))
+    sock.send(b"\x00\x00\x00\x02{}")
+    await asyncio.sleep(0.1)
+
+    null_handler.handle.assert_not_called()
     await server.stop()
 
 

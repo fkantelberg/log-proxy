@@ -108,3 +108,27 @@ def test_valid_file():
     with pytest.raises(argparse.ArgumentTypeError):
         assert utils.valid_file(__file__ + "a")
     assert utils.valid_file(__file__) == __file__
+
+
+def test_parser():
+    parser = utils.ConfigArgumentParser()
+    parser.add_argument("pos")
+    parser.add_argument("-f-a", "--flag-a")
+    parser.add_argument("-s", "--switch", default=False, action="store_true")
+    parser.add_argument("--other", "-o", default=False, action="store_true")
+    mock = parser.parse_args = MagicMock()
+
+    parser.parse_with_config([])
+    mock.assert_called_once_with([])
+    mock.reset_mock()
+
+    parser.parse_with_config(["--other"], {"unknown": True, "flag_a": 1, "switch": 42})
+    mock.assert_called_once_with(["--other", "-f-a", "1", "-s"])
+    mock.reset_mock()
+
+    parser.parse_with_config([], {"other": 1, "pos": 2, "help": True})
+    mock.assert_called_once_with(["--other"])
+    mock.reset_mock()
+
+    parser.parse_with_config(["-f-a", "42"], {"flag_a": 43})
+    mock.assert_called_once_with(["-f-a", "42"])

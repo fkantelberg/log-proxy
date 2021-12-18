@@ -1,10 +1,12 @@
 import argparse
 import asyncio
+from tempfile import NamedTemporaryFile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from log_proxy import __main__ as main
+from log_proxy.base import CONFIG_SECTION
 
 
 def test_parser():
@@ -15,6 +17,20 @@ def test_parser():
             main.parse_args(["-h"])
 
         mock.assert_called_once_with(0)
+
+    with NamedTemporaryFile("w+") as fp:
+        fp.write(f"[{CONFIG_SECTION}]\nno_server=True")
+        fp.flush()
+
+        args = main.parse_args(["--config", fp.name])
+        assert args.no_server is True
+
+    with NamedTemporaryFile("w+") as fp:
+        fp.write(f"[{CONFIG_SECTION}a]\nno_server=True")
+        fp.flush()
+
+        args = main.parse_args(["--config", fp.name])
+        assert args.no_server is False
 
 
 @patch("log_proxy.__main__.JSONSocketHandler")
@@ -76,6 +92,7 @@ async def test_run(watch_mock, utils_mock, server_mock):
 
     mock.no_server = False
     mock.listen = "example.org", 2773
+    mock.token = None
     utils_mock.generate_ssl_context = MagicMock()
     await main.run(mock)
     await asyncio.sleep(0.1)
@@ -83,6 +100,7 @@ async def test_run(watch_mock, utils_mock, server_mock):
     server_mock.assert_called_once_with(
         *mock.listen,
         utils_mock.generate_ssl_context.return_value,
+        None,
     )
 
     mock.log_stdin = True
@@ -94,4 +112,15 @@ async def test_run(watch_mock, utils_mock, server_mock):
     server_mock.reset_mock()
     await main.run(mock)
     await asyncio.sleep(0.1)
-    server_mock.assert_called_once_with(*mock.listen, None)
+    server_mock.assert_called_once_with(*mock.listen, None, None)
+
+
+@patch("log_proxy.__main__.configure")
+@patch("log_proxy.__main__.parse_args")
+@patch("log_proxy.__main__.run")
+def test_main(run_mock, parse_mock, config_mock):
+    main.main("test args")
+
+    parse_mock.assert_called_once_with("test args")
+    run_mock.assert_called_once_with(parse_mock.return_value)
+    config_mock.assert_called_once_with(parse_mock.return_value)

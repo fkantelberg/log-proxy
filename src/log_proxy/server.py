@@ -7,10 +7,11 @@ _logger = logging.getLogger()
 
 
 class LogServer:
-    def __init__(self, host, port, ssl_context=None):
+    def __init__(self, host, port, ssl_context=None, token=None):
         self.host = host
         self.port = port
         self.ssl_context = ssl_context
+        self.token = token
         self.loggers = {}
 
     async def _read_log_data(self, reader):
@@ -26,6 +27,21 @@ class LogServer:
         except Exception:
             return False
 
+    async def _read_token(self, reader):
+        """Read a log entry from a JSONSocketHandler"""
+        size = struct.calcsize(">L")
+
+        try:
+            datalen = struct.unpack(">L", await reader.readexactly(size))[0]
+            if datalen <= 0:
+                return False
+
+            data = json.loads(await reader.readexactly(datalen))
+
+            return data["token"] == self.token
+        except Exception:
+            return False
+
     def _log_record(self, data):
         """Send the data to the log"""
         record = logging.makeLogRecord(data)
@@ -33,7 +49,9 @@ class LogServer:
 
     async def _accept(self, reader, writer):
         """Accept new clients and wait for logs to process them"""
-        while True:
+
+        running = not self.token or await self._read_token(reader)
+        while running:
             data = await self._read_log_data(reader)
             if not isinstance(data, dict):
                 break

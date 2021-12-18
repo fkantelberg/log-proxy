@@ -5,10 +5,16 @@ from logging.handlers import SocketHandler
 
 
 class JSONSocketHandler(SocketHandler):
-    def __init__(self, host, port, *, uuid=None, ssl_context=None):
+    def __init__(self, host, port, *, uuid=None, ssl_context=None, token=None):
         super().__init__(host, port)
         self.ssl_context = ssl_context
+        self.token = token
         self.uuid = uuid or socket.gethostname()
+
+    def _convert_json(self, data):
+        data = json.dumps(data)
+        datalen = struct.pack(">L", len(data))
+        return datalen + data.encode()
 
     def makeSocket(self, timeout=1):
         """Wrap the socket with a SSL context if passed"""
@@ -16,6 +22,9 @@ class JSONSocketHandler(SocketHandler):
 
         if self.ssl_context:
             return self.ssl_context.wrap_socket(sock, server_side=True)
+
+        if self.token:
+            sock.send(self._convert_json({"token": self.token}))
 
         return sock
 
@@ -34,7 +43,4 @@ class JSONSocketHandler(SocketHandler):
             }
         )
         data.pop("message", None)
-
-        data = json.dumps(data)
-        datalen = struct.pack(">L", len(data))
-        return datalen + data.encode()
+        return self._convert_json(data)

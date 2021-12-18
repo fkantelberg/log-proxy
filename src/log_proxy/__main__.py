@@ -3,9 +3,10 @@ import argparse
 import asyncio
 import logging
 import sys
+from configparser import ConfigParser
 from typing import Tuple
 
-from . import utils
+from . import base, utils
 from .handlers import JSONSocketHandler
 from .server import LogServer
 
@@ -13,16 +14,6 @@ try:
     from .watcher import watch
 except ImportError:
     watch = None
-
-DEFAULT_PORT = 3773
-LOG_LEVELS = {
-    "critical": logging.CRITICAL,
-    "debug": logging.DEBUG,
-    "error": logging.ERROR,
-    "info": logging.INFO,
-    "warn": logging.WARN,
-    "warning": logging.WARNING,
-}
 
 
 class CustomHelpFormatter(argparse.HelpFormatter):
@@ -36,7 +27,7 @@ class CustomHelpFormatter(argparse.HelpFormatter):
 
 
 def parse_args(args: Tuple[str] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
+    parser = utils.ConfigArgumentParser(
         formatter_class=CustomHelpFormatter,
         prog="",
         description="",
@@ -44,12 +35,20 @@ def parse_args(args: Tuple[str] = None) -> argparse.Namespace:
 
     group = parser.add_argument_group("Basic configuration")
     group.add_argument(
+        "-c",
+        "--config",
+        default=None,
+        type=argparse.FileType(),
+        help="Load everything from a configuration file. Additional arguments can "
+        "override the configuration.",
+    )
+    group.add_argument(
         "--log-file",
         help="File to use for logging. If not set logs will be put to stdout.",
     )
     group.add_argument(
         "--log-level",
-        choices=sorted(LOG_LEVELS),
+        choices=sorted(base.LOG_LEVELS),
         default="info",
         help="Set the log level to use. (default: %(default)s)",
     )
@@ -118,18 +117,18 @@ def parse_args(args: Tuple[str] = None) -> argparse.Namespace:
         "-l",
         "--listen",
         dest="listen",
-        default=("", DEFAULT_PORT),
+        default=("", base.DEFAULT_PORT),
         metavar="[host[,host]*][:port]",
         type=lambda x: utils.parse_address(
             x,
             host="",
-            port=DEFAULT_PORT,
+            port=base.DEFAULT_PORT,
             multiple=True,
         ),
         help=f"The address to listen on. If host is not given the server will "
         f"listen for connections from all IPs. If you want to listen on multiple "
         f"interfaces you can separate them by comma. If the port is not given "
-        f"the server will listen on port {DEFAULT_PORT}.",
+        f"the server will listen on port {base.DEFAULT_PORT}.",
     )
     group.add_argument(
         "--ca",
@@ -157,6 +156,11 @@ def parse_args(args: Tuple[str] = None) -> argparse.Namespace:
         default=None,
         help="Ciphers to use for the TLS connection.",
     )
+    group.add_argument(
+        "--token",
+        default=None,
+        help="Token to use to connect. Will enforce token authentication if set.",
+    )
 
     group = parser.add_argument_group("Forwarding configuration")
     group.add_argument(
@@ -165,9 +169,9 @@ def parse_args(args: Tuple[str] = None) -> argparse.Namespace:
         dest="forward",
         metavar="host[:port]",
         default=None,
-        type=lambda x: utils.parse_address(x, port=DEFAULT_PORT),
+        type=lambda x: utils.parse_address(x, port=base.DEFAULT_PORT),
         help=f"Connect to a different log server to forward the log messages further."
-        f" (default: {DEFAULT_PORT})",
+        f" (default: {base.DEFAULT_PORT})",
     )
     group.add_argument(
         "--forward-ca",
@@ -198,25 +202,42 @@ def parse_args(args: Tuple[str] = None) -> argparse.Namespace:
         help="Ciphers to use for the TLS connection.",
     )
     group.add_argument(
+        "--forward-token",
+        default=None,
+        help="Token to initialize the connection to the log server.",
+    )
+    group.add_argument(
         "--no-verify-hostname",
         action="store_true",
         default=False,
         help="Disable the hostname verification. Only useful for forwarding.",
     )
 
-    return parser.parse_args(args)
+    parsed = parser.parse_args(args)
+    if not getattr(parsed, "config", None):
+        return parsed
+
+    cp = ConfigParser()
+    cp.read_file(parsed.config)
+    if not cp.has_section(base.CONFIG_SECTION):
+        return parsed
+    return parser.parse_with_config(args, dict(cp.items(base.CONFIG_SECTION)))
 
 
 def configure(args: argparse.Namespace) -> None:
     """Configure the logger using the arguments"""
-    level = LOG_LEVELS.get(args.log_level, logging.INFO)
+    level = base.LOG_LEVELS.get(args.log_level, logging.INFO)
     kwargs = {"log_format": args.log_format, "stdout": not args.no_stdout}
 
     if not args.forward:
         return utils.configure_logging(args.log_file, level, None, **kwargs)
 
     if not args.forward_ca:
-        handler = JSONSocketHandler(*args.forward, uuid=args.log_uuid)
+        handler = JSONSocketHandler(
+            *args.forward,
+            uuid=args.log_uuid,
+            token=args.forward_token,
+        )
         return utils.configure_logging(args.log_file, level, handler, **kwargs)
 
     sc = utils.generate_ssl_context(
@@ -227,7 +248,12 @@ def configure(args: argparse.Namespace) -> None:
         check_hostname=not args.no_verify_hostname,
     )
 
-    handler = JSONSocketHandler(*args.forward, ssl_context=sc, uuid=args.log_uuid)
+    handler = JSONSocketHandler(
+        *args.forward,
+        ssl_context=sc,
+        uuid=args.log_uuid,
+        token=args.forward_token,
+    )
     return utils.configure_logging(args.log_file, level, handler, **kwargs)
 
 
@@ -245,7 +271,7 @@ async def run(args: argparse.Namespace) -> None:
         else:
             ssl_context = None
 
-        server = LogServer(*args.listen, ssl_context)
+        server = LogServer(*args.listen, ssl_context, args.token)
 
         if args.log_stdin:
             asyncio.create_task(utils.stdin_to_log())

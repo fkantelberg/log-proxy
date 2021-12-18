@@ -5,6 +5,7 @@ import os
 import re
 import ssl
 import sys
+from argparse import ArgumentParser, Namespace
 from typing import List, Tuple, Union
 from urllib.parse import urlsplit
 
@@ -173,3 +174,31 @@ def valid_file(path: str) -> str:
     if not os.path.isfile(path):
         raise argparse.ArgumentTypeError("Not a file.")
     return path
+
+
+class ConfigArgumentParser(ArgumentParser):
+    """ Helper class for the configuration management """
+
+    def parse_with_config(
+        self,
+        args: Tuple[str] = None,
+        config: dict = None,
+    ) -> Namespace:
+        """ Parse the arguments using additional configuration """
+        args = list(sys.argv[1:] if args is None else args[:])
+
+        actions = {act.dest: act for act in self._actions if act.option_strings}
+
+        for key, value in (config or {}).items():
+            action = actions.get(key)
+
+            # Skip if it's not a action or if already present in the arguments
+            if not action or any(opt in args for opt in action.option_strings):
+                continue
+
+            if isinstance(action, argparse._StoreConstAction):
+                args.append(action.option_strings[0])
+            elif isinstance(action, argparse._StoreAction):
+                args.extend((action.option_strings[0], str(value)))
+
+        return self.parse_args(args)
