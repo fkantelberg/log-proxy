@@ -9,7 +9,7 @@ from argparse import ArgumentParser, Namespace
 from typing import List, Tuple, Union
 from urllib.parse import urlsplit
 
-from .handlers import JSONSocketHandler
+from .handlers import DatabaseHandler, JSONSocketHandler
 
 _logger = logging.getLogger()
 
@@ -19,33 +19,32 @@ DEFAULT_LOG_FORMAT = "{asctime} [{levelname:^8}] {name}: {message}"
 def configure_logging(
     log_file: str = None,
     level: int = logging.INFO,
-    forward: JSONSocketHandler = None,
     log_format: str = DEFAULT_LOG_FORMAT,
+    *,
+    database: DatabaseHandler = None,
+    forward: JSONSocketHandler = None,
     stdout: bool = True,
 ) -> None:
     """Helper to configure the logger and handlers"""
     _logger.setLevel(level)
     formatter = logging.Formatter(log_format, style="{")
 
+    handlers = [forward, database]
+
+    # Echo the logs on the stdout
     if stdout:
-        # Echo the logs on the stdout
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setLevel(level)
-        handler.setFormatter(formatter)
-        _logger.addHandler(handler)
+        handlers.append(logging.StreamHandler(sys.stdout))
 
+    # Write the logs additional into a file
     if log_file:
-        # Write the logs additional into a file
-        handler = logging.FileHandler(log_file)
-        handler.setLevel(level)
-        handler.setFormatter(formatter)
-        _logger.addHandler(handler)
+        handlers.append(logging.FileHandler(log_file))
 
-    if forward:
-        # Forward the logs further
-        forward.setLevel(level)
-        forward.setFormatter(formatter)
-        _logger.addHandler(forward)
+    # Forward the logs further
+    for handler in handlers:
+        if handler:
+            handler.setLevel(level)
+            handler.setFormatter(formatter)
+            _logger.addHandler(handler)
 
 
 def generate_ssl_context(
@@ -57,7 +56,7 @@ def generate_ssl_context(
     ciphers: List[str] = None,
     check_hostname: bool = False,
 ) -> ssl.SSLContext:
-    """ Generate a SSL context for the tunnel """
+    """Generate a SSL context for the tunnel"""
 
     # Set the protocol and create the basic context
     proto = ssl.PROTOCOL_TLS_SERVER if server else ssl.PROTOCOL_TLS_CLIENT
@@ -177,14 +176,14 @@ def valid_file(path: str) -> str:
 
 
 class ConfigArgumentParser(ArgumentParser):
-    """ Helper class for the configuration management """
+    """Helper class for the configuration management"""
 
     def parse_with_config(
         self,
         args: Tuple[str] = None,
         config: dict = None,
     ) -> Namespace:
-        """ Parse the arguments using additional configuration """
+        """Parse the arguments using additional configuration"""
         args = list(sys.argv[1:] if args is None else args[:])
 
         actions = {act.dest: act for act in self._actions if act.option_strings}

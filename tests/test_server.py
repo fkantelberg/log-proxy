@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import socket
 import uuid
@@ -122,32 +121,3 @@ async def test_server_token_invalid(unused_tcp_port, null_handler):
 
     null_handler.handle.assert_not_called()
     await server.stop()
-
-
-def test_json_handler_socket(unused_tcp_port):
-    sock = socket.socket()
-
-    sock.bind(("", unused_tcp_port))
-    sock.listen()
-
-    handler = JSONSocketHandler("127.0.0.1", unused_tcp_port)
-
-    assert isinstance(handler.makeSocket(), socket.socket)
-
-    # Force the SSL wrapping of the socket
-    handler.ssl_context = MagicMock()
-    handler.makeSocket()
-    handler.ssl_context.wrap_socket.assert_called_once()
-    args, kwargs = handler.ssl_context.wrap_socket.call_args
-    assert any(isinstance(arg, socket.socket) for arg in args)
-    assert kwargs["server_side"] is True
-
-
-def test_json_handler_pickle():
-    record = logging.makeLogRecord({"msg": "hello"})
-    record.exc_info = (None, None, None)
-
-    handler = JSONSocketHandler("127.0.0.1", 0)
-    ret = handler.makePickle(record)
-    ret = json.loads(ret[4:].decode())
-    assert ret["msg"] == "hello"

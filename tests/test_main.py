@@ -33,12 +33,13 @@ def test_parser():
         assert args.no_server is False
 
 
+@patch("log_proxy.__main__.DatabaseHandler")
 @patch("log_proxy.__main__.JSONSocketHandler")
 @patch("log_proxy.utils.configure_logging")
 @patch("log_proxy.utils.generate_ssl_context")
-def test_configure(ssl_mock, conf_mock, handler_mock):
+def test_configure(ssl_mock, conf_mock, json_mock, psql_mock):
     mock = MagicMock()
-    mock.forward = mock.forward_ca = False
+    mock.forward = mock.forward_ca = mock.database = False
 
     assert main.configure(mock) == conf_mock.return_value
     conf_mock.assert_called_once()
@@ -47,11 +48,16 @@ def test_configure(ssl_mock, conf_mock, handler_mock):
     assert main.configure(mock) == conf_mock.return_value
 
     ssl_mock.assert_not_called()
-    handler_mock.assert_called_once()
+    json_mock.assert_called_once()
 
     mock.forward_ca = True
     assert main.configure(mock) == conf_mock.return_value
+    psql_mock.assert_not_called()
     ssl_mock.assert_called_once()
+
+    mock.database = "abc"
+    assert main.configure(mock) == conf_mock.return_value
+    psql_mock.assert_called_once()
 
 
 @patch("log_proxy.__main__.LogServer", return_value=AsyncMock())

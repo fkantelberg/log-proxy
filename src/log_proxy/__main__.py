@@ -7,7 +7,7 @@ from configparser import ConfigParser
 from typing import Tuple
 
 from . import base, utils
-from .handlers import JSONSocketHandler
+from .handlers import DatabaseChoices, DatabaseHandler, JSONSocketHandler
 from .server import LogServer
 
 try:
@@ -213,6 +213,47 @@ def parse_args(args: Tuple[str] = None) -> argparse.Namespace:
         help="Disable the hostname verification. Only useful for forwarding.",
     )
 
+    if DatabaseChoices:
+        group = parser.add_argument_group("Database configuration")
+        group.add_argument(
+            "--db",
+            dest="database",
+            default=None,
+            help="The database name to log the messages to",
+        )
+        group.add_argument(
+            "--db-user",
+            default=None,
+            help="The database user",
+        )
+        group.add_argument(
+            "--db-password",
+            default=None,
+            help="The database password",
+        )
+        group.add_argument(
+            "--db-host",
+            default=None,
+            help="The database host. (default: %(default)s)",
+        )
+        group.add_argument(
+            "--db-port",
+            default=None,
+            help="The database port. (default: %(default)s)",
+        )
+        group.add_argument(
+            "--db-table",
+            default="log",
+            help="The database table to log to. (default: %(default)s)",
+        )
+        group.add_argument(
+            "--db-type",
+            default=DatabaseChoices[0],
+            choices=DatabaseChoices,
+            help=f"The database type. Choice: {', '.join(DatabaseChoices)}. "
+            "(default: %(default)s)",
+        )
+
     parsed = parser.parse_args(args)
     if not getattr(parsed, "config", None):
         return parsed
@@ -229,32 +270,42 @@ def configure(args: argparse.Namespace) -> None:
     level = base.LOG_LEVELS.get(args.log_level, logging.INFO)
     kwargs = {"log_format": args.log_format, "stdout": not args.no_stdout}
 
-    if not args.forward:
-        return utils.configure_logging(args.log_file, level, None, **kwargs)
+    sc = forward = database = None
+    if args.forward_ca:
+        sc = utils.generate_ssl_context(
+            ca=args.forward_ca,
+            cert=args.forward_cert,
+            key=args.forward_key,
+            ciphers=args.forward_cipher,
+            check_hostname=not args.no_verify_hostname,
+        )
 
-    if not args.forward_ca:
-        handler = JSONSocketHandler(
+    if args.forward:
+        forward = JSONSocketHandler(
             *args.forward,
+            ssl_context=sc,
             uuid=args.log_uuid,
             token=args.forward_token,
         )
-        return utils.configure_logging(args.log_file, level, handler, **kwargs)
 
-    sc = utils.generate_ssl_context(
-        ca=args.forward_ca,
-        cert=args.forward_cert,
-        key=args.forward_key,
-        ciphers=args.forward_cipher,
-        check_hostname=not args.no_verify_hostname,
-    )
+    if args.database:
+        database = DatabaseHandler(
+            table=args.db_table,
+            db_type=args.db_type,
+            db_name=args.database,
+            db_user=args.db_user,
+            db_password=args.db_password,
+            db_host=args.db_host,
+            db_port=args.db_port,
+        )
 
-    handler = JSONSocketHandler(
-        *args.forward,
-        ssl_context=sc,
-        uuid=args.log_uuid,
-        token=args.forward_token,
+    return utils.configure_logging(
+        args.log_file,
+        level,
+        forward=forward,
+        database=database,
+        **kwargs,
     )
-    return utils.configure_logging(args.log_file, level, handler, **kwargs)
 
 
 async def run(args: argparse.Namespace) -> None:

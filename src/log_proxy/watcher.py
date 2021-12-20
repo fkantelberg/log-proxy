@@ -8,11 +8,14 @@ from watchdog.utils.patterns import match_any_paths
 
 
 class WatcherHandler(PatternMatchingEventHandler):
+    """Watcher class to observe changes in all specified files in the folder"""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.observed = {}
 
     def match_file(self, path):
+        """Check if the path matches the patterns and folder"""
         return match_any_paths(
             [path],
             included_patterns=self.patterns,

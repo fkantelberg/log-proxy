@@ -7,6 +7,10 @@ _logger = logging.getLogger()
 
 
 class LogServer:
+    """Logging server which can accept logs from the JSONSocketHandler. Received
+    logs are passed to the standard python log. This allows to pass the logs further
+    with other logging handlers."""
+
     def __init__(self, host, port, ssl_context=None, token=None):
         self.host = host
         self.port = port
