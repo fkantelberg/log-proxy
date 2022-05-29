@@ -4,9 +4,10 @@ import logging
 import os
 import re
 import ssl
+import struct
 import sys
 from argparse import ArgumentParser, Namespace
-from typing import List, Tuple, Union
+from typing import Any, List, Tuple, Union
 from urllib.parse import urlsplit
 
 from .handlers import DatabaseHandler, JSONSocketHandler
@@ -103,7 +104,7 @@ def parse_address(
     # Only the address without scheme and path. We only support IPs if multiple hosts
     # are activated
     pattern = r"[0-9.:\[\],]*?" if multiple else r"[0-9a-zA-Z.:\[\],]*?"
-    match = re.match(fr"^(?P<hosts>{pattern})(:(?P<port>\d+))?$", address)
+    match = re.match(rf"^(?P<hosts>{pattern})(:(?P<port>\d+))?$", address)
     if not match:
         raise argparse.ArgumentTypeError(
             "Invalid address parsed. Only host and port are supported."
@@ -150,6 +151,11 @@ def parse_address(
             return host, port
 
     raise argparse.ArgumentTypeError("Invalid address parsed. Host required.")
+
+
+async def receive_struct(reader: asyncio.StreamReader, fmt: str) -> Tuple[Any]:
+    size = struct.calcsize(fmt)
+    return struct.unpack(fmt, await reader.readexactly(size))
 
 
 async def stdin_to_log():

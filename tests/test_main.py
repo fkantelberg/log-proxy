@@ -106,7 +106,8 @@ async def test_run(watch_mock, utils_mock, server_mock):
     server_mock.assert_called_once_with(
         *mock.listen,
         utils_mock.generate_ssl_context.return_value,
-        None,
+        token_file=mock.token_file,
+        use_auth=True,
     )
 
     mock.log_stdin = True
@@ -118,7 +119,12 @@ async def test_run(watch_mock, utils_mock, server_mock):
     server_mock.reset_mock()
     await main.run(mock)
     await asyncio.sleep(0.1)
-    server_mock.assert_called_once_with(*mock.listen, None, None)
+    server_mock.assert_called_once_with(
+        *mock.listen,
+        None,
+        token_file=mock.token_file,
+        use_auth=True,
+    )
 
 
 @patch("log_proxy.__main__.configure")

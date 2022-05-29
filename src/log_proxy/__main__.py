@@ -157,9 +157,11 @@ def parse_args(args: Tuple[str] = None) -> argparse.Namespace:
         help="Ciphers to use for the TLS connection.",
     )
     group.add_argument(
-        "--token",
+        "--token-file",
+        type=utils.valid_file,
         default=None,
-        help="Token to use to connect. Will enforce token authentication if set.",
+        help="Enable token authentication using the given json file to store the "
+        "trusted tokens",
     )
 
     group = parser.add_argument_group("Forwarding configuration")
@@ -322,7 +324,12 @@ async def run(args: argparse.Namespace) -> None:
         else:
             ssl_context = None
 
-        server = LogServer(*args.listen, ssl_context, args.token)
+        server = LogServer(
+            *args.listen,
+            ssl_context,
+            token_file=args.token_file,
+            use_auth=bool(args.token_file),
+        )
 
         if args.log_stdin:
             asyncio.create_task(utils.stdin_to_log())

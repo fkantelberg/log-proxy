@@ -19,7 +19,7 @@ def null_handler():
 
 
 def test_server_start(unused_tcp_port):
-    server = LogServer("127.0.0.1", unused_tcp_port)
+    server = LogServer("127.0.0.1", unused_tcp_port, use_auth=False)
     server.run = AsyncMock()
     server.start()
     server.run.assert_called_once()
@@ -27,18 +27,17 @@ def test_server_start(unused_tcp_port):
 
 @pytest.mark.asyncio
 async def test_server(unused_tcp_port, null_handler):
-    server = LogServer("127.0.0.1", unused_tcp_port)
+    server = LogServer("127.0.0.1", unused_tcp_port, use_auth=False)
     # Start the server
     asyncio.create_task(server.run())
     null_handler.handle = MagicMock()
 
     # Connect a handler to the server
     json_handler = JSONSocketHandler("127.0.0.1", unused_tcp_port)
-
     await asyncio.sleep(0.1)
 
     # Send a normal log
-    record = logging.makeLogRecord({"msg": "hello"})
+    record = logging.makeLogRecord({"msg": "hello", "levelno": logging.INFO})
     json_handler.handle(record)
     await asyncio.sleep(0.1)
     null_handler.handle.assert_called_once()
@@ -64,18 +63,18 @@ async def test_server(unused_tcp_port, null_handler):
 @pytest.mark.asyncio
 async def test_server_token(unused_tcp_port, null_handler):
     token = str(uuid.uuid4())
-    server = LogServer("127.0.0.1", unused_tcp_port, token=token)
+    server = LogServer("127.0.0.1", unused_tcp_port, use_auth=True)
+    server.add_token(token, name="test-client")
     # Start the server
     asyncio.create_task(server.run())
     null_handler.handle = MagicMock()
 
     # Connect a handler to the server
     json_handler = JSONSocketHandler("127.0.0.1", unused_tcp_port, token=token)
-
     await asyncio.sleep(0.1)
 
     # Send a normal log
-    record = logging.makeLogRecord({"msg": "hello"})
+    record = logging.makeLogRecord({"msg": "hello", "levelno": logging.INFO})
     json_handler.handle(record)
     await asyncio.sleep(0.1)
     null_handler.handle.assert_called_once()
@@ -85,13 +84,12 @@ async def test_server_token(unused_tcp_port, null_handler):
 
 @pytest.mark.asyncio
 async def test_server_token_invalid(unused_tcp_port, null_handler):
-    token = str(uuid.uuid4())
-    server = LogServer("127.0.0.1", unused_tcp_port, token=token)
+    server = LogServer("127.0.0.1", unused_tcp_port)
     # Start the server
     asyncio.create_task(server.run())
     null_handler.handle = MagicMock()
 
-    record = logging.makeLogRecord({"msg": "hello"})
+    record = logging.makeLogRecord({"msg": "hello", "levelno": logging.INFO})
 
     # Connect a handler to the server
     json_handler = JSONSocketHandler("127.0.0.1", unused_tcp_port)
@@ -99,7 +97,7 @@ async def test_server_token_invalid(unused_tcp_port, null_handler):
     await asyncio.sleep(0.1)
 
     # Connect a handler to the server
-    json_handler = JSONSocketHandler("127.0.0.1", unused_tcp_port, token="abc")
+    json_handler = JSONSocketHandler("127.0.0.1", unused_tcp_port)
     json_handler.handle(record)
     await asyncio.sleep(0.1)
 

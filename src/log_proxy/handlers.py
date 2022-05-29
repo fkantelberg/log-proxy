@@ -203,6 +203,7 @@ class JSONSocketHandler(SocketHandler):
         if self.ssl_context:
             return self.ssl_context.wrap_socket(sock, server_side=True)
 
+        # Send the token for authorization
         if self.token:
             sock.send(self._convert_json({"token": self.token}))
 
@@ -219,7 +220,6 @@ class JSONSocketHandler(SocketHandler):
                 "msg": record.getMessage(),
                 "args": None,
                 "exc_info": None,
-                "name": f"{self.uuid}~{record.name}",
             }
         )
         data.pop("message", None)
