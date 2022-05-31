@@ -1,13 +1,15 @@
 import asyncio
+import json
 import logging
 import socket
 import uuid
 from logging import NullHandler
+from tempfile import NamedTemporaryFile
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from log_proxy import JSONSocketHandler, LogServer
+from log_proxy import JSONSocketHandler, LogServer, LogTokenFileError
 
 
 @pytest.fixture
@@ -23,6 +25,56 @@ def test_server_start(unused_tcp_port):
     server.run = AsyncMock()
     server.start()
     server.run.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_server_token_file(unused_tcp_port, null_handler):
+    tokens = {"abc": {}, "def": {"name": "def"}}
+
+    with NamedTemporaryFile("w+") as fp:
+        json.dump(tokens, fp)
+        fp.flush()
+        fp.seek(0)
+
+        server = LogServer(
+            "127.0.0.1", unused_tcp_port, token_file=fp.name, use_auth=True
+        )
+
+        assert server.tokens == {}
+        server._update_tokens()
+        assert server.tokens == tokens
+
+        tokens["def"]["name"] = "hello"
+        assert server.tokens != tokens
+        json.dump(tokens, fp)
+        fp.flush()
+
+        server._update_tokens()
+        assert server.tokens == tokens
+        assert server.tokens["def"]["name"] == "hello"
+
+        with pytest.raises(LogTokenFileError):
+            server.add_token("abc")
+
+        assert server.tokens == tokens
+
+        with pytest.raises(LogTokenFileError):
+            server.delete_token("abc")
+
+        assert server.tokens == tokens
+
+
+@pytest.mark.asyncio
+async def test_server_token_management(unused_tcp_port, null_handler):
+    server = LogServer("127.0.0.1", unused_tcp_port, use_auth=True)
+
+    assert server.tokens == {}
+    server.add_token("abc", name="hello")
+    assert server.tokens == {"abc": {"name": "hello"}}
+    server.delete_token("def")
+    assert server.tokens
+    server.delete_token("abc")
+    assert server.tokens == {}
 
 
 @pytest.mark.asyncio

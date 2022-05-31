@@ -66,8 +66,7 @@ class LogServer:
         if not token:
             return None
 
-        self._update_tokens()
-        return self.tokens.get(token)
+        return token
 
     async def _read_json(self, reader):
         try:
@@ -97,16 +96,20 @@ class LogServer:
         """Accept new clients and wait for logs to process them"""
 
         if self.use_auth:
-            client = self.auth_client(await self._read_json(reader))
+            token = self.auth_client(await self._read_json(reader))
+
+            self._update_tokens()
+            client = self.tokens.get(token)
             if not client:
                 await self._stop(reader, writer)
                 return
+
+            name = client.get("name", token)
+            if name:
+                _logger.info(f"Client '{name}' connected")
         else:
             client = {}
-
-        name = client.get("name")
-        if name:
-            _logger.info(f"Client '{name}' connected")
+            name = None
 
         while True:
             data = await self._read_json(reader)

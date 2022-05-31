@@ -1,5 +1,5 @@
 from .handlers import DatabaseHandler, JSONSocketHandler
-from .server import LogServer
+from .server import LogServer, LogTokenFileError
 from .utils import generate_ssl_context
 
 __all__ = [
@@ -7,4 +7,5 @@ __all__ = [
     "JSONSocketHandler",
     "DatabaseHandler",
     "LogServer",
+    "LogTokenFileError",
 ]
