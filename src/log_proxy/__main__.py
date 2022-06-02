@@ -286,7 +286,6 @@ def configure(args: argparse.Namespace) -> None:
         forward = JSONSocketHandler(
             *args.forward,
             ssl_context=sc,
-            uuid=args.log_uuid,
             token=args.forward_token,
         )
 

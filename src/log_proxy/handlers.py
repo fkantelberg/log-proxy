@@ -1,6 +1,5 @@
 import json
 import re
-import socket
 import struct
 import time
 from logging import Handler
@@ -16,6 +15,12 @@ try:
 except ImportError:
     pg_connect = None
 
+
+try:
+    from pymongo import MongoClient
+except ImportError:
+    MongoClient = None
+
 try:
     from pymysql import connect as my_connect
 except ImportError:
@@ -30,6 +35,13 @@ if my_connect:
     DatabaseChoices.extend(("mariadb", "mysql"))
 if influx_connect:
     DatabaseChoices.append("influxdb")
+if MongoClient:
+    DatabaseChoices.append("mongodb")
+
+
+def mongo_connect(database, **kwargs):
+    client = MongoClient(**kwargs)
+    return client[database]
 
 
 class DatabaseHandler(Handler):
@@ -53,6 +65,7 @@ class DatabaseHandler(Handler):
             raise ValueError("Invalid database table name")
 
         self.db_type = db_type
+        self.connection = None
         if db_type == "postgres":
             kwargs = {
                 "dbname": db_name,
@@ -61,7 +74,6 @@ class DatabaseHandler(Handler):
                 "port": db_port or 5432,
                 "user": db_user,
             }
-            self.connection = pg_connect(**{k: v for k, v in kwargs.items() if v})
         elif db_type in ("mariadb", "mysql"):
             kwargs = {
                 "database": db_name,
@@ -70,7 +82,6 @@ class DatabaseHandler(Handler):
                 "port": db_port or 3306,
                 "user": db_user,
             }
-            self.connection = my_connect(**{k: v for k, v in kwargs.items() if v})
         elif db_type == "influxdb":
             kwargs = {
                 "database": db_name,
@@ -79,18 +90,44 @@ class DatabaseHandler(Handler):
                 "port": db_port or 8086,
                 "username": db_user,
             }
-            self.connection = influx_connect(**{k: v for k, v in kwargs.items() if v})
+        elif db_type == "mongodb":
+            kwargs = {
+                "database": db_name,
+                "host": db_host,
+                "port": db_port,
+                "username": db_user,
+                "password": db_password,
+            }
+        else:
+            raise NotImplementedError()
+
+        self._params = {k: v for k, v in kwargs.items() if v}
+
+    def _connect(self):
+        if self.db_type == "postgres":
+            self.connection = pg_connect(**self._params)
+        elif self.db_type in ("mariadb", "mysql"):
+            self.connection = my_connect(**self._params)
+        elif self.db_type == "influxdb":
+            self.connection = influx_connect(**self._params)
+        elif self.db_type == "mongodb":
+            self.connection = mongo_connect(**self._params)
         else:
             raise NotImplementedError()
 
     def _store(self, *args, **kwargs):
         """Pass the log to the right database handler"""
+        if not self.connection:
+            self._connect()
+
         if self.db_type == "postgres":
             self._pg_store(*args, **kwargs)
         elif self.db_type in ("mariadb", "mysql"):
             self._my_store(*args, **kwargs)
         elif self.db_type == "influxdb":
             self._influx_store(*args, **kwargs)
+        elif self.db_type == "mongodb":
+            self._mongo_store(*args, **kwargs)
 
     def _influx_store(self, level, message, created_at, created_by):
         """Store the log within the influxdb"""
@@ -106,6 +143,16 @@ class DatabaseHandler(Handler):
                     "fields": {"message": message},
                 }
             ]
+        )
+
+    def _mongo_store(self, level, message, created_at, created_by):
+        self.connection["logs"].insert_one(
+            {
+                "level": level,
+                "message": message,
+                "created_at": created_at,
+                "created_by": created_by,
+            }
         )
 
     def _my_store(self, level, message, created_at, created_by):
@@ -184,11 +231,10 @@ class DatabaseHandler(Handler):
 class JSONSocketHandler(SocketHandler):
     """Logging handler to send the log via a socket to a server in JSON format"""
 
-    def __init__(self, host, port, *, uuid=None, ssl_context=None, token=None):
+    def __init__(self, host, port, *, ssl_context=None, token=None):
         super().__init__(host, port)
         self.ssl_context = ssl_context
         self.token = token
-        self.uuid = uuid or socket.gethostname()
 
     def _convert_json(self, data):
         """Convert the data to a simple byte representation"""

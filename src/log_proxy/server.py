@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import ssl
+from asyncio.exceptions import IncompleteReadError
 
 from . import utils
 
@@ -75,7 +76,7 @@ class LogServer:
                 return None
 
             return json.loads(await reader.readexactly(length))
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, IncompleteReadError):
             return None
 
     def _log_record(self, data, client_name=None):

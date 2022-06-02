@@ -53,11 +53,29 @@ def test_postgres_handler(mock):
         db_name="test",
         db_host="127.0.0.1",
     )
-    mock.assert_called_once_with(dbname="test", host="127.0.0.1", port=5432)
-    assert handler.connection == mock.return_value
 
     record = MagicMock()
     handler.emit(record)
+    mock.assert_called_once_with(dbname="test", host="127.0.0.1", port=5432)
+    assert handler.connection == mock.return_value
+
+    mock.return_value.cursor.side_effect = [AssertionError]
+    handler.emit(record)
+
+
+@patch("log_proxy.handlers.mongo_connect")
+def test_mongodb_handler(mock):
+    handler = DatabaseHandler(
+        table="log",
+        db_type="mongodb",
+        db_name="test",
+        db_host="127.0.0.1",
+    )
+
+    record = MagicMock()
+    handler.emit(record)
+    mock.assert_called_once_with(database="test", host="127.0.0.1")
+    assert handler.connection == mock.return_value
 
     mock.return_value.cursor.side_effect = [AssertionError]
     handler.emit(record)
@@ -77,11 +95,11 @@ def test_mysql_handler(mock):
         db_name="test",
         db_host="127.0.0.1",
     )
-    mock.assert_called_once_with(database="test", host="127.0.0.1", port=3306)
-    assert handler.connection == mock.return_value
 
     record = MagicMock()
     handler.emit(record)
+    mock.assert_called_once_with(database="test", host="127.0.0.1", port=3306)
+    assert handler.connection == mock.return_value
 
     mock.return_value.cursor.side_effect = [AssertionError]
     handler.emit(record)
@@ -101,11 +119,11 @@ def test_influx_handler(mock):
         db_name="test",
         db_host="127.0.0.1",
     )
-    mock.assert_called_once_with(database="test", host="127.0.0.1", port=8086)
-    assert handler.connection == mock.return_value
 
     record = MagicMock()
     handler.emit(record)
+    mock.assert_called_once_with(database="test", host="127.0.0.1", port=8086)
+    assert handler.connection == mock.return_value
 
     mock.return_value.cursor.side_effect = [AssertionError]
     handler.emit(record)

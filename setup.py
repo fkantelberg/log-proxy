@@ -24,9 +24,9 @@ setup(
     include_package_data=True,
     entry_points={"console_scripts": ["log_proxy = log_proxy.__main__:main"]},
     extras_require={
-        "full": ["watchdog", "psycopg2", "pymysql", "influxdb"],
         "observe": ["watchdog"],
         "postgres": ["psycopg2"],
+        "mongodb": ["pymongo"],
         "mysql": ["pymysql"],
         "influxdb": ["influxdb"],
     },
