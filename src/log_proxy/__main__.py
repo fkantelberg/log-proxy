@@ -440,7 +440,7 @@ async def run_server(args: argparse.Namespace) -> None:
     # Start the server
     server = LogServer(
         *args.listen,
-        ssl_context,
+        ssl_context=ssl_context,
         token_file=args.token_file,
         use_auth=bool(args.token_file),
         forwarder=forwarder,
