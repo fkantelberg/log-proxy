@@ -22,7 +22,7 @@ deps = pytest
 depends:
     py39: clean
     report: py39
-commands = pytest --cov {envsitepackagesdir}/log_proxy --cov-append --timeout 5
+commands = pytest --cov {envsitepackagesdir}/log_proxy --asyncio-mode strict --cov-append --timeout 5
 
 [testenv:report]
 skip_install = true

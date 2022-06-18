@@ -1,248 +1,34 @@
 import json
-import re
+import logging
+import socket
+import ssl
 import struct
-import time
-from logging import Handler
+from datetime import datetime
 from logging.handlers import SocketHandler
-
-try:
-    from influxdb import InfluxDBClient as influx_connect
-except ImportError:
-    influx_connect = None
-
-try:
-    from psycopg2 import connect as pg_connect
-except ImportError:
-    pg_connect = None
-
-
-try:
-    from pymongo import MongoClient
-except ImportError:
-    MongoClient = None
-
-try:
-    from pymysql import connect as my_connect
-except ImportError:
-    my_connect = None
-
-
-# Aggregate the possible database choices based on the available imports
-DatabaseChoices = []
-if pg_connect:
-    DatabaseChoices.append("postgres")
-if my_connect:
-    DatabaseChoices.extend(("mariadb", "mysql"))
-if influx_connect:
-    DatabaseChoices.append("influxdb")
-if MongoClient:
-    DatabaseChoices.append("mongodb")
-
-
-def mongo_connect(database, **kwargs):
-    client = MongoClient(**kwargs)
-    return client[database]
-
-
-class DatabaseHandler(Handler):
-    """Logging handler to send the log to a database"""
-
-    def __init__(
-        self,
-        table,
-        db_type,
-        db_name,
-        db_user=None,
-        db_password=None,
-        db_host=None,
-        db_port=None,
-    ):
-        super().__init__()
-
-        if re.match(r"^[\w_]+$", table):
-            self.table = table
-        else:
-            raise ValueError("Invalid database table name")
-
-        self.db_type = db_type
-        self.connection = None
-        if db_type == "postgres":
-            kwargs = {
-                "dbname": db_name,
-                "host": db_host,
-                "password": db_password,
-                "port": db_port or 5432,
-                "user": db_user,
-            }
-        elif db_type in ("mariadb", "mysql"):
-            kwargs = {
-                "database": db_name,
-                "host": db_host,
-                "password": db_password,
-                "port": db_port or 3306,
-                "user": db_user,
-            }
-        elif db_type == "influxdb":
-            kwargs = {
-                "database": db_name,
-                "host": db_host,
-                "password": db_password,
-                "port": db_port or 8086,
-                "username": db_user,
-            }
-        elif db_type == "mongodb":
-            kwargs = {
-                "database": db_name,
-                "host": db_host,
-                "port": db_port,
-                "username": db_user,
-                "password": db_password,
-            }
-        else:
-            raise NotImplementedError()
-
-        self._params = {k: v for k, v in kwargs.items() if v}
-
-    def _connect(self):
-        if self.db_type == "postgres":
-            self.connection = pg_connect(**self._params)
-        elif self.db_type in ("mariadb", "mysql"):
-            self.connection = my_connect(**self._params)
-        elif self.db_type == "influxdb":
-            self.connection = influx_connect(**self._params)
-        elif self.db_type == "mongodb":
-            self.connection = mongo_connect(**self._params)
-        else:
-            raise NotImplementedError()
-
-    def _store(self, *args, **kwargs):
-        """Pass the log to the right database handler"""
-        if not self.connection:
-            self._connect()
-
-        if self.db_type == "postgres":
-            self._pg_store(*args, **kwargs)
-        elif self.db_type in ("mariadb", "mysql"):
-            self._my_store(*args, **kwargs)
-        elif self.db_type == "influxdb":
-            self._influx_store(*args, **kwargs)
-        elif self.db_type == "mongodb":
-            self._mongo_store(*args, **kwargs)
-
-    def _influx_store(self, level, message, created_at, created_by):
-        """Store the log within the influxdb"""
-        self.connection.write_points(
-            [
-                {
-                    "measurement": "log",
-                    "tags": {
-                        "name": created_by,
-                        "level": level,
-                    },
-                    "time": created_at,
-                    "fields": {"message": message},
-                }
-            ]
-        )
-
-    def _mongo_store(self, level, message, created_at, created_by):
-        self.connection["logs"].insert_one(
-            {
-                "level": level,
-                "message": message,
-                "created_at": created_at,
-                "created_by": created_by,
-            }
-        )
-
-    def _my_store(self, level, message, created_at, created_by):
-        """Store the log within the mysql/mariadb database"""
-        with self.connection.cursor() as cr:
-            cr.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS `{self.table}` (
-                    `id` INT AUTO_INCREMENT,
-                    `level` LONGTEXT NOT NULL,
-                    `message` LONGTEXT NOT NULL,
-                    `created_at` LONGTEXT NOT NULL,
-                    `created_by` LONGTEXT NOT NULL,
-                    PRIMARY KEY (`id`)
-                )
-                """
-            )
-
-            query = f"""
-                INSERT INTO `{self.table}`
-                (`level`, `message`, `created_at`, `created_by`)
-                VALUES (%s, %s, %s, %s)"""
-
-            cr.execute(
-                query,
-                (level, message, created_at, created_by),
-            )
-
-        self.connection.commit()
-
-    def _pg_store(self, level, message, created_at, created_by):
-        """Store the log within the postgres database"""
-        with self.connection.cursor() as cr:
-            cr.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS "{self.table}" (
-                    "id" SERIAL,
-                    "level" VARCHAR NOT NULL,
-                    "message" VARCHAR NOT NULL,
-                    "created_at" VARCHAR NOT NULL,
-                    "created_by" VARCHAR NOT NULL,
-                    PRIMARY KEY ("id")
-                )
-                """
-            )
-
-            query = (
-                f'INSERT INTO "{self.table}"'
-                f'("level", "message", "created_at", "created_by")'
-                f"VALUES (%s, %s, %s, %s)"
-            )
-
-            cr.execute(
-                query,
-                (level, message, created_at, created_by),
-            )
-
-        self.connection.commit()
-
-    def emit(self, record):
-        """Emit the record to the database"""
-        try:
-            self._store(
-                record.levelname or str(record.levelno),
-                record.msg,
-                time.strftime(
-                    "%Y-%m-%d %H:%M:%S",
-                    time.localtime(record.created),
-                ),
-                record.name,
-            )
-        except Exception:
-            pass
 
 
 class JSONSocketHandler(SocketHandler):
     """Logging handler to send the log via a socket to a server in JSON format"""
 
-    def __init__(self, host, port, *, ssl_context=None, token=None):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        *,
+        ssl_context: ssl.SSLContext = None,
+        token: str = None,
+    ):
         super().__init__(host, port)
         self.ssl_context = ssl_context
         self.token = token
 
-    def _convert_json(self, data):
+    def _convert_json(self, data: dict) -> bytes:
         """Convert the data to a simple byte representation"""
         data = json.dumps(data)
         datalen = struct.pack(">L", len(data))
         return datalen + data.encode()
 
-    def makeSocket(self, timeout=1):
+    def makeSocket(self, timeout: float = 1) -> socket.socket:
         """Wrap the socket with a SSL context if passed"""
         sock = super().makeSocket(timeout)
 
@@ -255,18 +41,19 @@ class JSONSocketHandler(SocketHandler):
 
         return sock
 
-    def makePickle(self, record):
+    def makePickle(self, record: logging.LogRecord) -> bytes:
         """Use json instead of pickle to prevent code execution"""
         if record.exc_info:
             self.format(record)
 
-        data = dict(record.__dict__)
-        data.update(
-            {
-                "msg": record.getMessage(),
-                "args": None,
-                "exc_info": None,
-            }
-        )
-        data.pop("message", None)
+        data = {
+            "level": record.levelno,
+            "pid": record.process,
+            "created_at": datetime.fromtimestamp(record.created).isoformat(" "),
+            "created_by": record.name,
+            "message": record.getMessage(),
+            "exception": record.exc_text,
+            "path": record.pathname,
+            "lineno": record.lineno,
+        }
         return self._convert_json(data)

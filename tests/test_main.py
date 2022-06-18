@@ -1,138 +1,188 @@
-import argparse
-import asyncio
 from tempfile import NamedTemporaryFile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from log_proxy import __main__ as main
-from log_proxy.base import CONFIG_SECTION
+from log_proxy import SocketForwarder
+from log_proxy.__main__ import main, parser_watcher, run_server
 
 
-def test_parser():
-    assert isinstance(main.parse_args([]), argparse.Namespace)
-
-    with patch("sys.exit", side_effect=[AssertionError]) as mock:
-        with pytest.raises(AssertionError):
-            main.parse_args(["-h"])
-
-        mock.assert_called_once_with(0)
-
-    with NamedTemporaryFile("w+") as fp:
-        fp.write(f"[{CONFIG_SECTION}]\nno_server=True")
-        fp.flush()
-
-        args = main.parse_args(["--config", fp.name])
-        assert args.no_server is True
-
-    with NamedTemporaryFile("w+") as fp:
-        fp.write(f"[{CONFIG_SECTION}a]\nno_server=True")
-        fp.flush()
-
-        args = main.parse_args(["--config", fp.name])
-        assert args.no_server is False
-
-
-@patch("log_proxy.__main__.DatabaseHandler")
 @patch("log_proxy.__main__.JSONSocketHandler")
-@patch("log_proxy.utils.configure_logging")
 @patch("log_proxy.utils.generate_ssl_context")
-def test_configure(ssl_mock, conf_mock, json_mock, psql_mock):
-    mock = MagicMock()
-    mock.forward = mock.forward_ca = mock.database = False
-
-    assert main.configure(mock) == conf_mock.return_value
-    conf_mock.assert_called_once()
-
-    mock.forward = "example.org", 2773
-    assert main.configure(mock) == conf_mock.return_value
-
+@patch("log_proxy.utils.stdin_to_log", new_callable=AsyncMock)
+@patch("log_proxy.__main__.configure")
+def test_client(conf_mock, stdin_mock, ssl_mock, handler_mock, unused_tcp_port):
+    main(["client", "--forward", f"localhost:{unused_tcp_port}", "--log-stdin"])
     ssl_mock.assert_not_called()
-    json_mock.assert_called_once()
+    stdin_mock.assert_called_once()
+    handler_mock.assert_called_once()
 
-    mock.forward_ca = True
-    assert main.configure(mock) == conf_mock.return_value
-    psql_mock.assert_not_called()
+    stdin_mock.reset_mock()
+    handler_mock.reset_mock()
+
+    with NamedTemporaryFile() as fp:
+        main(
+            [
+                "client",
+                "--forward",
+                f"localhost:{unused_tcp_port}",
+                "--log-stdin",
+                "--forward-ca",
+                fp.name,
+            ]
+        )
     ssl_mock.assert_called_once()
+    stdin_mock.assert_called_once()
+    handler_mock.assert_called_once()
+    assert handler_mock.call_args.kwargs["ssl_context"] == ssl_mock.return_value
 
-    mock.database = "abc"
-    assert main.configure(mock) == conf_mock.return_value
-    psql_mock.assert_called_once()
+
+@patch("log_proxy.__main__.JSONSocketHandler")
+@patch("log_proxy.__main__.watch", new_callable=AsyncMock)
+@patch("log_proxy.utils.stdin_to_log", new_callable=AsyncMock)
+@patch("log_proxy.__main__.configure")
+def test_client_watch(conf_mock, stdin_mock, watch_mock, handler_mock, unused_tcp_port):
+    watch_mock.__bool__.return_value = True
+
+    main(["client", "--forward", f"localhost:{unused_tcp_port}", "--watch", "/tmp"])
+    watch_mock.assert_called_once()
+    handler_mock.assert_called_once()
+
+    watch_mock.reset_mock()
+    handler_mock.reset_mock()
+
+    main(
+        [
+            "client",
+            "--forward",
+            f"localhost:{unused_tcp_port}",
+            "--watch",
+            "/tmp",
+            "--log-stdin",
+        ]
+    )
+    stdin_mock.assert_called_once()
+    watch_mock.assert_called_once()
+    handler_mock.assert_called_once()
 
 
 @patch("log_proxy.__main__.LogServer", return_value=AsyncMock())
-@patch("log_proxy.__main__.utils", new_callable=AsyncMock)
-@patch("log_proxy.__main__.watch", new_callable=AsyncMock)
-@pytest.mark.asyncio
-async def test_run(watch_mock, utils_mock, server_mock):
-    mock = AsyncMock()
-    mock.no_server, mock.watch, mock.log_stdin = True, False, False
+@patch("log_proxy.utils.generate_ssl_context")
+@patch("sys.exit", side_effect=[AssertionError()])
+def test_run_server_socket(exit_mock, ssl_mock, server_mock, unused_tcp_port):
+    # Spawn a server with a socket forwarder with SSL context
+    with NamedTemporaryFile() as fp:
+        main(
+            [
+                "server",
+                "socket",
+                "--forward",
+                f"localhost:{unused_tcp_port}",
+                "--forward-ca",
+                fp.name,
+            ]
+        )
+    ssl_mock.assert_called_once()
+    server_mock.assert_called_once()
+    assert isinstance(server_mock.call_args.kwargs["forwarder"], SocketForwarder)
 
-    await main.run(mock)
-    await asyncio.sleep(0.1)
+    # Spawn a server with a socket forwarder without SSL context
+    ssl_mock.reset_mock()
+    server_mock.reset_mock()
+    main(["server", "socket", "--forward", f"localhost:{unused_tcp_port}"])
+    ssl_mock.assert_not_called()
+    server_mock.assert_called_once()
+    assert isinstance(server_mock.call_args.kwargs["forwarder"], SocketForwarder)
 
-    utils_mock.stdin_to_log.assert_not_called()
-
-    mock.log_stdin = True
-    await main.run(mock)
-    await asyncio.sleep(0.1)
-    utils_mock.generate_ssl_context.assert_not_called()
-    utils_mock.stdin_to_log.assert_called_once()
-    utils_mock.reset_mock()
-
-    watch_mock.assert_not_called()
+    # Missing forward argument
+    server_mock.reset_mock()
+    with pytest.raises(AssertionError):
+        main(["server", "socket"])
     server_mock.assert_not_called()
 
-    mock.watch = True
-    await main.run(mock)
-    await asyncio.sleep(0.1)
-    utils_mock.stdin_to_log.assert_called_once()
-    watch_mock.assert_called_once()
 
-    mock.log_stdin = False
-    await main.run(mock)
-    await asyncio.sleep(0.1)
-    utils_mock.stdin_to_log.assert_called_once()
-    utils_mock.reset_mock()
-    watch_mock.reset_mock()
+@patch("log_proxy.forwarders.PostgresForwarder")
+@patch("log_proxy.__main__.LogServer", return_value=AsyncMock())
+@patch("log_proxy.utils.generate_ssl_context")
+@patch("sys.exit", side_effect=[AssertionError()])
+def test_run_server_postgres(exit_mock, ssl_mock, server_mock, forward_mock):
+    # Spawn a server with a socket forwarder with SSL context
+    with NamedTemporaryFile() as fp:
+        main(
+            [
+                "server",
+                "postgres",
+                "--db",
+                "log",
+                "--db-table",
+                "log",
+                "--cert",
+                fp.name,
+                "--key",
+                fp.name,
+            ]
+        )
+    server_mock.assert_called_once()
+    ssl_mock.assert_called_once()
+    assert server_mock.call_args.kwargs["forwarder"] == forward_mock.return_value
 
-    mock.no_server = False
-    mock.listen = "example.org", 2773
-    mock.token = None
-    utils_mock.generate_ssl_context = MagicMock()
-    await main.run(mock)
-    await asyncio.sleep(0.1)
-    utils_mock.stdin_to_log.assert_not_called()
-    server_mock.assert_called_once_with(
-        *mock.listen,
-        utils_mock.generate_ssl_context.return_value,
-        token_file=mock.token_file,
-        use_auth=True,
-    )
-
-    mock.log_stdin = True
-    await main.run(mock)
-    await asyncio.sleep(0.1)
-    utils_mock.stdin_to_log.assert_called_once()
-
-    mock.cert = False
+    # Missing forward argument
     server_mock.reset_mock()
-    await main.run(mock)
-    await asyncio.sleep(0.1)
-    server_mock.assert_called_once_with(
-        *mock.listen,
-        None,
-        token_file=mock.token_file,
-        use_auth=True,
-    )
+    with pytest.raises(AssertionError):
+        main(["server", "postgres"])
+    server_mock.assert_not_called()
 
 
+@patch("log_proxy.forwarders.MongoDBForwarder")
+@patch("log_proxy.__main__.LogServer", return_value=AsyncMock())
+@patch("log_proxy.utils.generate_ssl_context")
+@patch("sys.exit", side_effect=[AssertionError()])
+def test_run_server_mongodb(exit_mock, ssl_mock, server_mock, forward_mock):
+    # Spawn a server with a socket forwarder with SSL context
+    main(["server", "mongodb", "--db", "log", "--db-table", "log"])
+    server_mock.assert_called_once()
+    assert server_mock.call_args.kwargs["forwarder"] == forward_mock.return_value
+
+    # Missing forward argument
+    server_mock.reset_mock()
+    with pytest.raises(AssertionError):
+        main(["server", "mongodb"])
+    server_mock.assert_not_called()
+
+
+@patch("log_proxy.forwarders.MongoDBForwarder")
+@patch("log_proxy.__main__.LogServer", return_value=AsyncMock())
+@patch("log_proxy.utils.generate_ssl_context")
+@patch("sys.exit", side_effect=[AssertionError()])
+def test_run_server_with_config(exit_mock, ssl_mock, server_mock, forward_mock):
+    # Spawn a server with a socket forwarder with SSL context
+    with NamedTemporaryFile() as fp:
+        fp.write(b"[log_proxy]\ndatabase=log\ndb_table=log")
+        fp.flush()
+        main(["server", "mongodb", "--config", fp.name])
+
+    server_mock.assert_called_once()
+    assert server_mock.call_args.kwargs["forwarder"] == forward_mock.return_value
+
+    server_mock.reset_mock()
+    with NamedTemporaryFile() as fp, pytest.raises(AssertionError):
+        fp.write(b"[invalid]\ndatabase=log\ndb_table=log")
+        fp.flush()
+        main(["server", "mongodb", "--config", fp.name])
+    server_mock.assert_not_called()
+
+
+@patch("log_proxy.__main__.LogServer", return_value=AsyncMock())
 @patch("log_proxy.__main__.configure")
-@patch("log_proxy.__main__.parse_args")
-@patch("log_proxy.__main__.run")
-def test_main(run_mock, parse_mock, config_mock):
-    main.main("test args")
+@patch("log_proxy.__main__.watch")
+@patch("sys.exit", side_effect=[AssertionError()])
+@pytest.mark.asyncio
+async def test_run_invalid(exit_mock, watch_mock, conf_mock, server_mock):
+    with pytest.raises(NotImplementedError):
+        await run_server(MagicMock(forwarder="invalid"))
 
-    parse_mock.assert_called_once_with("test args")
-    run_mock.assert_called_once_with(parse_mock.return_value)
-    config_mock.assert_called_once_with(parse_mock.return_value)
+    # watch isn't available
+    watch_mock.__bool__.return_value = False
+    with MagicMock() as mock:
+        parser_watcher(mock)
+        mock.add_argument_group.assert_not_called()

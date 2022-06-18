@@ -10,7 +10,7 @@ def read(fname):
 
 setup(
     name="log-proxy",
-    version="1.4",
+    version="2.0",
     author="Florian Kantelberg",
     author_email="florian.kantelberg@mailbox.org",
     description="Proxy the log from one system to another",
@@ -24,11 +24,9 @@ setup(
     include_package_data=True,
     entry_points={"console_scripts": ["log_proxy = log_proxy.__main__:main"]},
     extras_require={
-        "observe": ["watchdog"],
-        "postgres": ["psycopg2"],
         "mongodb": ["pymongo"],
-        "mysql": ["pymysql"],
-        "influxdb": ["influxdb"],
+        "observe": ["watchdog"],
+        "postgres": ["asyncpg"],
     },
     classifiers=[
         "Programming Language :: Python :: 3",

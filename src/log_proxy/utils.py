@@ -10,7 +10,7 @@ from argparse import ArgumentParser, Namespace
 from typing import Any, List, Tuple, Union
 from urllib.parse import urlsplit
 
-from .handlers import DatabaseHandler, JSONSocketHandler
+from .handlers import JSONSocketHandler
 
 _logger = logging.getLogger()
 
@@ -22,15 +22,18 @@ def configure_logging(
     level: int = logging.INFO,
     log_format: str = DEFAULT_LOG_FORMAT,
     *,
-    database: DatabaseHandler = None,
     forward: JSONSocketHandler = None,
+    logger: logging.Logger = None,
     stdout: bool = True,
 ) -> None:
     """Helper to configure the logger and handlers"""
-    _logger.setLevel(level)
+    if not logger:
+        logger = _logger
+
+    logger.setLevel(level)
     formatter = logging.Formatter(log_format, style="{")
 
-    handlers = [forward, database]
+    handlers = [forward]
 
     # Echo the logs on the stdout
     if stdout:
@@ -45,7 +48,7 @@ def configure_logging(
         if handler:
             handler.setLevel(level)
             handler.setFormatter(formatter)
-            _logger.addHandler(handler)
+            logger.addHandler(handler)
 
 
 def generate_ssl_context(
@@ -158,7 +161,7 @@ async def receive_struct(reader: asyncio.StreamReader, fmt: str) -> Tuple[Any]:
     return struct.unpack(fmt, await reader.readexactly(size))
 
 
-async def stdin_to_log():
+async def stdin_to_log() -> None:
     """Use the stdin and pass it to the logger"""
     loop = asyncio.get_event_loop()
     reader = asyncio.StreamReader()
@@ -184,6 +187,22 @@ def valid_file(path: str) -> str:
 class ConfigArgumentParser(ArgumentParser):
     """Helper class for the configuration management"""
 
+    def _collect_actions(
+        self,
+        parser: argparse.ArgumentParser,
+    ) -> Namespace:
+        """Parse the arguments using additional configuration"""
+        actions = {}
+
+        for act in parser._actions:
+            if isinstance(act, argparse._SubParsersAction):
+                for a in act.choices.values():
+                    actions.update(self._collect_actions(a))
+            elif act.option_strings:
+                actions[act.dest] = act
+
+        return actions
+
     def parse_with_config(
         self,
         args: Tuple[str] = None,
@@ -191,8 +210,7 @@ class ConfigArgumentParser(ArgumentParser):
     ) -> Namespace:
         """Parse the arguments using additional configuration"""
         args = list(sys.argv[1:] if args is None else args[:])
-
-        actions = {act.dest: act for act in self._actions if act.option_strings}
+        actions = self._collect_actions(self)
 
         for key, value in (config or {}).items():
             action = actions.get(key)
@@ -206,4 +224,4 @@ class ConfigArgumentParser(ArgumentParser):
             elif isinstance(action, argparse._StoreAction):
                 args.extend((action.option_strings[0], str(value)))
 
-        return self.parse_args(args)
+        return self.parse_known_args(args)[0]

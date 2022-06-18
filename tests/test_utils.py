@@ -92,13 +92,20 @@ def test_parse_address():
 
 
 @pytest.mark.asyncio
+async def test_receive_struct():
+    reader = AsyncMock()
+    reader.readexactly = AsyncMock(side_effect=[b"\x00\x00\x00\x12{}"])
+    assert await utils.receive_struct(reader, ">L2s") == (18, b"{}")
+
+
+@pytest.mark.asyncio
 async def test_stdin_to_log():
     log = logging.getLogger().info = MagicMock()
 
     with patch("asyncio.get_event_loop") as mock:
         with patch("asyncio.StreamReader") as reader:
             mock.return_value = AsyncMock()
-            reader.return_value.readline = AsyncMock(side_effect=[b"hello\n", ""])
+            reader.return_value.readline = AsyncMock(side_effect=[b"hello\n", b""])
             await utils.stdin_to_log()
             mock.assert_called_once()
             log.assert_called_once_with("hello")
@@ -112,11 +119,10 @@ def test_valid_file():
 
 def test_parser():
     parser = utils.ConfigArgumentParser()
-    parser.add_argument("pos")
     parser.add_argument("-f-a", "--flag-a")
     parser.add_argument("-s", "--switch", default=False, action="store_true")
     parser.add_argument("--other", "-o", default=False, action="store_true")
-    mock = parser.parse_args = MagicMock()
+    mock = parser.parse_known_args = MagicMock()
 
     parser.parse_with_config([])
     mock.assert_called_once_with([])
@@ -132,3 +138,15 @@ def test_parser():
 
     parser.parse_with_config(["-f-a", "42"], {"flag_a": 43})
     mock.assert_called_once_with(["-f-a", "42"])
+
+    sub = parser.add_subparsers(dest="abc")
+    sub.add_parser("a").add_argument("-a-flag", default=False, action="store_true")
+    sub.add_parser("b").add_argument("-b-flag", default=False, action="store_true")
+
+    mock.reset_mock()
+    parser.parse_with_config(["a"], {"a_flag": True})
+    mock.assert_called_once_with(["a", "-a-flag"])
+
+    mock.reset_mock()
+    parser.parse_with_config(["b"], {"b_flag": True})
+    mock.assert_called_once_with(["b", "-b-flag"])
