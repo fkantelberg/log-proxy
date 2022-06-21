@@ -60,7 +60,7 @@ async def test_forwarder_mongo():
     assert not forwarder.connected()
 
     # Test connection and message processing
-    with patch("log_proxy.forwarders.MongoClient") as mock:
+    with patch("log_proxy.forwarders.mongodb.MongoClient") as mock:
         await forwarder.connect()
         mock.assert_called_once_with(**forwarder.args)
 
@@ -88,7 +88,9 @@ async def test_forwarder_postgres():
     assert not forwarder.connected()
 
     # Test connection and message processing
-    with patch("log_proxy.forwarders.pg_connect", new_callable=AsyncMock) as mock:
+    with patch(
+        "log_proxy.forwarders.postgres.pg_connect", new_callable=AsyncMock
+    ) as mock:
         await forwarder.connect()
         mock.assert_called_once_with(**forwarder.args)
 
